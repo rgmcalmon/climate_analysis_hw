@@ -4,7 +4,7 @@ import datetime as dt
 import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, func, and_
 
 from flask import Flask, jsonify
 
@@ -16,9 +16,6 @@ Base.prepare(engine, reflect=True)
 # Prepare references to each table
 Measurement = Base.classes.measurement
 Station = Base.classes.station
-
-# Create session link to the DB
-session = Session(engine)
 
 ### Flask setup
 app = Flask(__name__)
@@ -44,6 +41,8 @@ def welcome():
 # Return the JSON representation of the dictionary
 @app.route("/api/v1.0/precipitation")
 def precipitation():
+	# Create session link to the DB
+	session = Session(engine)
 	# Query the DB
 	prcp_query = session.query(Measurement.date, Measurement.prcp)\
     	.order_by(Measurement.date)\
@@ -52,6 +51,7 @@ def precipitation():
 	prcp_df = pd.DataFrame(prcp_query).set_index('date').dropna()
 	# Use GroupBy to convert to a dictionary of lists
 	prcp_dict = prcp_df.groupby('date')['prcp'].apply(list).to_dict()
+	session.close()
 	return jsonify(prcp_dict)
 	
 
@@ -60,6 +60,8 @@ def precipitation():
 # Return a JSON list of stations from the dataset
 @app.route("/api/v1.0/stations")
 def stations():
+	# Create session link to the DB
+	session = Session(engine)
 	# Query the DB
 	station_query = session.query(Measurement.station)\
 		.distinct().all()
@@ -67,6 +69,7 @@ def stations():
 	station_list = [s[0] for s in station_query]
 	# Return as single-keyed dictionary
 	station_dict = {'station': station_list}
+	session.close()
 	return jsonify(station_dict)
 
 
@@ -76,6 +79,8 @@ def stations():
 # Return a JSON list of Temperature OBServations (tobs) for the previous year
 @app.route("/api/v1.0/tobs")
 def tobs():
+	# Create session link to the DB
+	session = Session(engine)
 	# Calculate final date
 	last_date = session.query(func.max(Measurement.date)).scalar()
 	last_date_dt = dt.date.fromisoformat(last_date)
@@ -89,6 +94,7 @@ def tobs():
 	tobs_df = pd.DataFrame(tobs_query).set_index('date').dropna()
 	# Use GroupBy to convert to a dictionary of lists
 	tobs_dict = tobs_df.groupby('date')['tobs'].apply(list).to_dict()
+	session.close()
 	return jsonify(tobs_dict)
 
 
@@ -97,11 +103,14 @@ def tobs():
 # for all dates after <start>
 @app.route("/api/v1.0/<start>")
 def tobs_after(start):
+	# Create session link to the DB
+	session = Session(engine)
 	start_tobs_query = session.query(Measurement.date, func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs))\
 		.filter(Measurement.date >= start)\
     	.group_by(Measurement.date)\
     	.all()
 	start_tobs_dict = {u[0] : {'min': u[1], 'avg': u[2], 'max': u[3]} for u in start_tobs_query}
+	session.close()
 	return jsonify(start_tobs_dict)
 
 
@@ -110,12 +119,14 @@ def tobs_after(start):
 # for all dates after <start> and until <end>
 @app.route("/api/v1.0/<start>/<end>")
 def tobs_between(start, end):
+	# Create session link to the DB
+	session = Session(engine)
 	start_tobs_query = session.query(Measurement.date, func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs))\
-		.filter(Measurement.date >= start)\
-		.filter(Measurement.date <= end)\
+		.filter(and_(Measurement.date >= start, Measurement.date <= end))\
     	.group_by(Measurement.date)\
     	.all()
 	start_tobs_dict = {u[0] : {'min': u[1], 'avg': u[2], 'max': u[3]} for u in start_tobs_query}
+	session.close()
 	return jsonify(start_tobs_dict)
 
 
